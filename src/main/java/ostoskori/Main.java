@@ -1,6 +1,7 @@
 package ostoskori;
 /**
- * Tämä sovellus sisältää ostoskorin, johon voi lisätä tuotteita. Tuotteilla on erilaisia ominaisuuksia.
+ * Tämä sovellus sisältää ostoskorin, johon voi lisätä tuotteita.
+ * Tuotteilla on erilaisia ominaisuuksia, kuten päivämäärä, paino, koko yms.
  * 
  */
 

@@ -10,9 +10,19 @@ public class Ostoskori {
         tuotteet.add(tuote);
     }
 
+    public void poistaTuote(Tuote tuote) {
+        tuotteet.remove(tuote);
+    }
+
     public List<Tuote> getTuotteet() {
         return tuotteet;
     }
 
-    
+    public double getKokonaishinta() {
+        double summa = 0.0;
+        for (Tuote tuote : tuotteet) {
+            summa += tuote.getHinta();
+        }
+        return summa;
+    }
 }
