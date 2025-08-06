@@ -2,6 +2,8 @@ package ostoskori;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.*;
+import java.io.*;
 
 public class OstoskoriGUI extends JFrame {
     private Ostoskori _ostoskori = new Ostoskori();
@@ -11,6 +13,24 @@ public class OstoskoriGUI extends JFrame {
     private JList<Tuote> _koriLista = new JList<>(_koriListaMalli);
     private JLabel _hintaLabel = new JLabel("Kokonaishinta: 0.00 €");
     private Tietokanta _tietokanta = new Tietokanta();
+    private ResourceBundle _kieliBundle = lataaKieliBundle("suomi");
+    private String _valittuKieli = "suomi";
+
+    // UI components that need translation
+    private JLabel otsikko;
+    private JLabel ostoskoriOtsikko;
+    private JButton lisaaButton;
+    private JButton poistaButton;
+    private JButton lisaaValikoimaanButton;
+    private JButton hakuButton;
+    private JButton tyhjennaButton;
+    private JLabel hakuLabel;
+    private JComboBox<String> kriteeriBox;
+    private JComboBox<String> lajitteluBox;
+    private JComboBox<String> alennusBox;
+    private JLabel alennusLabel;
+    private JComboBox<String> kieliBox;
+    private JLabel kieliLabel;
 
     public OstoskoriGUI() {
         setTitle("Yhteenveto");
@@ -37,8 +57,9 @@ public class OstoskoriGUI extends JFrame {
             System.err.println("Virhe ladattaessa tuotteita/ostoskoria tietokannasta: " + e.getMessage());
             e.printStackTrace();
         }
+        paivitaHinta();
 
-        JLabel otsikko = new JLabel("Yhteenveto");
+        otsikko = new JLabel(kaanna("otsikko"));
         otsikko.setFont(new Font("SansSerif", Font.BOLD, 28));
         otsikko.setForeground(Color.WHITE);
         otsikko.setHorizontalAlignment(SwingConstants.CENTER);
@@ -48,7 +69,7 @@ public class OstoskoriGUI extends JFrame {
         // Ostoskori (tuotelista ja kori)
         JPanel ostoskoriKortti = luoKortti();
         ostoskoriKortti.setLayout(new BorderLayout());
-        JLabel ostoskoriOtsikko = new JLabel("Ostoskori");
+        ostoskoriOtsikko = new JLabel(kaanna("ostoskori"));
         ostoskoriOtsikko.setFont(new Font("SansSerif", Font.BOLD, 18));
         ostoskoriOtsikko.setForeground(Color.WHITE);
         ostoskoriKortti.add(ostoskoriOtsikko, BorderLayout.NORTH);
@@ -61,8 +82,8 @@ public class OstoskoriGUI extends JFrame {
         tuoteScroll.setMinimumSize(listaKoko);
         koriScroll.setPreferredSize(listaKoko);
         koriScroll.setMinimumSize(listaKoko);
-        tuoteScroll.setBorder(BorderFactory.createTitledBorder("Valikoima"));
-        koriScroll.setBorder(BorderFactory.createTitledBorder("Ostoskori"));
+        tuoteScroll.setBorder(BorderFactory.createTitledBorder(kaanna("valikoima")));
+        koriScroll.setBorder(BorderFactory.createTitledBorder(kaanna("ostoskori")));
         ostoskoriSisalto.add(tuoteScroll);
         ostoskoriSisalto.add(koriScroll);
         ostoskoriKortti.add(ostoskoriSisalto, BorderLayout.CENTER);
@@ -78,14 +99,14 @@ public class OstoskoriGUI extends JFrame {
         // Napit valikoiman alle
         JPanel napitPanel = new JPanel(new GridLayout(1, 2, 10, 0));
         napitPanel.setOpaque(false);
-        JButton lisaaButton = new JButton("Lisää koriin →");
-        JButton poistaButton = new JButton("← Poista korista");
-        JButton lisaaValikoimaanButton = new JButton("Lisää uusi tuote valikoimaan");
+        lisaaButton = new JButton(kaanna("lisaa_koriin"));
+        poistaButton = new JButton(kaanna("poista_korista"));
+        lisaaValikoimaanButton = new JButton(kaanna("lisaa_uusi"));
         lisaaButton.addActionListener(e -> {
             Tuote valittu = _tuoteLista.getSelectedValue();
             if (valittu != null) {
                 if (valittu.getSaldo() <= 0) {
-                    JOptionPane.showMessageDialog(this, "Tuotetta ei voi lisätä koriin, saldo on 0!", "Ei saldoa", JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(this, kaanna("ei_saldoa"), kaanna("ei_saldoa_otsikko"), JOptionPane.WARNING_MESSAGE);
                     return;
                 }
                 _ostoskori.lisaaTuote(valittu);
@@ -134,15 +155,15 @@ public class OstoskoriGUI extends JFrame {
         GridBagConstraints hakuGbc = new GridBagConstraints();
         hakuGbc.insets = new Insets(0, 0, 0, 8);
         hakuGbc.gridy = 0;
-        String[] kriteerit = {"Nimi", "Hinta (min-max)", "Kategoria"};
-        JComboBox<String> kriteeriBox = new JComboBox<>(kriteerit);
+        hakuLabel = new JLabel(kaanna("haku"));
+        String[] kriteerit = {kaanna("haku_nimi"), kaanna("haku_hinta"), kaanna("haku_kategoria")};
+        kriteeriBox = new JComboBox<>(kriteerit);
         JTextField hakuKentta = new JTextField(16);
-        JButton hakuButton = new JButton("Hae");
-        JButton tyhjennaButton = new JButton("Tyhjennä");
-        // Lajittelukriteerit
-        String[] lajitteluKriteerit = {"Lajittele: Nimi", "Lajittele: Hinta", "Lajittele: Kategoria"};
-        JComboBox<String> lajitteluBox = new JComboBox<>(lajitteluKriteerit);
-        hakuPanel.add(new JLabel("Hae:"), hakuGbc);
+        hakuButton = new JButton(kaanna("hae"));
+        tyhjennaButton = new JButton(kaanna("tyhjenna"));
+        String[] lajitteluKriteerit = {kaanna("lajittele_nimi"), kaanna("lajittele_hinta"), kaanna("lajittele_kategoria")};
+        lajitteluBox = new JComboBox<>(lajitteluKriteerit);
+        hakuPanel.add(hakuLabel, hakuGbc);
         hakuGbc.gridx = 1; hakuPanel.add(hakuKentta, hakuGbc);
         hakuGbc.gridx = 2; hakuPanel.add(kriteeriBox, hakuGbc);
         hakuGbc.gridx = 3; hakuPanel.add(hakuButton, hakuGbc);
@@ -152,14 +173,33 @@ public class OstoskoriGUI extends JFrame {
         add(hakuPanel, gbc);
 
         // Alennusvalinta
-        String[] alennusVaihtoehdot = {"Ei alennusta", "Osta 3 maksa 2", "10% alennus yli 50 €"};
-        JComboBox<String> alennusBox = new JComboBox<>(alennusVaihtoehdot);
+        String[] alennusVaihtoehdot = {kaanna("alennus_ei"), kaanna("alennus_osta3"), kaanna("alennus_10")};
+        alennusBox = new JComboBox<>(alennusVaihtoehdot);
+        alennusBox.setSelectedIndex(0);
         gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
         JPanel alennusPanel = new JPanel();
         alennusPanel.setOpaque(false);
-        alennusPanel.add(new JLabel("Alennus:"));
+        alennusLabel = new JLabel(kaanna("alennus"));
+        alennusPanel.add(alennusLabel);
         alennusPanel.add(alennusBox);
         add(alennusPanel, gbc);
+
+        // Kielivalinta
+        String[] kielet = {"suomi", "svenska", "english"};
+        kieliBox = new JComboBox<>(kielet);
+        kieliBox.setSelectedIndex(0);
+        kieliLabel = new JLabel(kaanna("kieli"));
+        kieliBox.addActionListener(e -> {
+            _valittuKieli = (String)kieliBox.getSelectedItem();
+            _kieliBundle = lataaKieliBundle(_valittuKieli);
+            paivitaKaikkiTekstit();
+        });
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
+        JPanel kieliPanel = new JPanel();
+        kieliPanel.setOpaque(false);
+        kieliPanel.add(kieliLabel);
+        kieliPanel.add(kieliBox);
+        add(kieliPanel, gbc);
 
         // Lajitteluvalinta päivittää tuotelistan järjestyksen
         lajitteluBox.addActionListener(e -> {
@@ -186,11 +226,11 @@ public class OstoskoriGUI extends JFrame {
             String arvo = hakuKentta.getText().trim();
             _tuoteListaMalli.clear();
             try {
-                if (kriteeri.equals("Nimi")) {
+                if (kriteeri.equals(kaanna("haku_nimi"))) {
                     for (Tuote t : _tietokanta.haeTuotteetNimella(arvo)) {
                         _tuoteListaMalli.addElement(t);
                     }
-                } else if (kriteeri.equals("Hinta (min-max)")) {
+                } else if (kriteeri.equals(kaanna("haku_hinta"))) {
                     String[] osat = arvo.split("-");
                     if (osat.length == 2) {
                         double min = Double.parseDouble(osat[0].replace(",", "."));
@@ -199,7 +239,7 @@ public class OstoskoriGUI extends JFrame {
                             _tuoteListaMalli.addElement(t);
                         }
                     }
-                } else if (kriteeri.equals("Kategoria")) {
+                } else if (kriteeri.equals(kaanna("haku_kategoria"))) {
                     for (Tuote t : _tietokanta.haeTuotteetKategoriassa(arvo)) {
                         _tuoteListaMalli.addElement(t);
                     }
@@ -209,7 +249,6 @@ public class OstoskoriGUI extends JFrame {
                 ex.printStackTrace();
             }
         });
-
         tyhjennaButton.addActionListener(e -> {
             hakuKentta.setText("");
             kriteeriBox.setSelectedIndex(0);
@@ -276,6 +315,26 @@ public class OstoskoriGUI extends JFrame {
         });
     }
 
+    // Lisää puuttuva kielibundle-latausmetodi
+    private ResourceBundle lataaKieliBundle(String kieli) {
+        try {
+            return new PropertyResourceBundle(new InputStreamReader(
+                getClass().getClassLoader().getResourceAsStream("ostoskori/kielet.properties"), "UTF-8"));
+        } catch (Exception e) {
+            System.err.println("Käännöstiedoston lataus epäonnistui: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // Käännösmetodi
+    private String kaanna(String avain) {
+        try {
+            return _kieliBundle.getString(_valittuKieli + "." + avain);
+        } catch (MissingResourceException e) {
+            return avain;
+        }
+    }
+
     // Pyöristetty "kortti"-paneeli
     private JPanel luoKortti() {
         JPanel panel = new RoundedPanel(30, new Color(30, 30, 30));
@@ -306,23 +365,8 @@ public class OstoskoriGUI extends JFrame {
 
     private void paivitaHinta() {
         double summa = _ostoskori.getKokonaishinta();
-        String alennus = "Ei alennusta";
-        JComboBox<String> alennusBox = null;
-        // Etsi alennusBox käyttöliittymästä
-        for (Component c : getContentPane().getComponents()) {
-            if (c instanceof JPanel) {
-                for (Component cc : ((JPanel)c).getComponents()) {
-                    if (cc instanceof JComboBox) {
-                        alennusBox = (JComboBox<String>)cc;
-                        break;
-                    }
-                }
-            }
-        }
-        if (alennusBox != null) {
-            alennus = (String) alennusBox.getSelectedItem();
-        }
-        if (alennus.equals("Osta 3 maksa 2")) {
+        String alennus = (alennusBox != null && alennusBox.getSelectedItem() != null) ? alennusBox.getSelectedItem().toString() : kaanna("alennus_ei");
+        if (alennus.equals(kaanna("alennus_osta3"))) {
             java.util.List<Tuote> tuotteet = _ostoskori.getTuotteet();
             tuotteet.sort(java.util.Comparator.comparingDouble(Tuote::getHinta).reversed());
             double total = 0;
@@ -331,10 +375,11 @@ public class OstoskoriGUI extends JFrame {
                 total += tuotteet.get(i).getHinta();
             }
             summa = total;
-        } else if (alennus.equals("10% alennus yli 50 €")) {
+        } else if (alennus.equals(kaanna("alennus_10"))) {
             if (summa > 50) summa = summa * 0.9;
         }
-        _hintaLabel.setText(String.format("Kokonaishinta: %.2f €", summa));
+        String hintaPrefix = kaanna("kokonaishinta");
+        _hintaLabel.setText(hintaPrefix + String.format("%.2f €", summa));
     }
 
     private void avaaUusiTuoteDialogi() {
@@ -343,12 +388,12 @@ public class OstoskoriGUI extends JFrame {
         JTextField kategoriaKentta = new JTextField();
         JTextField saldoKentta = new JTextField("0");
         Object[] viestit = {
-            "Tuotteen nimi:", nimiKentta,
-            "Hinta (€):", hintaKentta,
-            "Kategoria:", kategoriaKentta,
-            "Saldo:", saldoKentta
+            kaanna("nimi"), nimiKentta,
+            kaanna("hinta"), hintaKentta,
+            kaanna("kategoria"), kategoriaKentta,
+            kaanna("saldo"), saldoKentta
         };
-        int valinta = JOptionPane.showConfirmDialog(this, viestit, "Lisää uusi tuote valikoimaan", JOptionPane.OK_CANCEL_OPTION);
+        int valinta = JOptionPane.showConfirmDialog(this, viestit, kaanna("lisaa_otsikko"), JOptionPane.OK_CANCEL_OPTION);
         if (valinta == JOptionPane.OK_OPTION) {
             String nimi = nimiKentta.getText().trim();
             String hintaStr = hintaKentta.getText().replace(",", ".").trim();
@@ -365,7 +410,7 @@ public class OstoskoriGUI extends JFrame {
                 } catch (NumberFormatException e) {
                     System.err.println("Virheellinen hinta tai saldo syötetty: " + hintaStr + ", " + saldoStr);
                     e.printStackTrace();
-                    JOptionPane.showMessageDialog(this, "Virheellinen hinta tai saldo!", "Virhe", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, kaanna("virheellinen_hinta_tai_saldo"), kaanna("virhe_otsikko"), JOptionPane.ERROR_MESSAGE);
                 } catch (Exception e) {
                     System.err.println("Virhe uuden tuotteen tallennuksessa: " + e.getMessage());
                     e.printStackTrace();
@@ -396,10 +441,10 @@ public class OstoskoriGUI extends JFrame {
         JTextField saldoKentta = new JTextField(String.valueOf(tuote.getSaldo()));
 
         JPanel panel = new JPanel(new GridLayout(0,2));
-        panel.add(new JLabel("Nimi:")); panel.add(nimiKentta);
-        panel.add(new JLabel("Hinta (€):")); panel.add(hintaKentta);
+        panel.add(new JLabel(kaanna("nimi"))); panel.add(nimiKentta);
+        panel.add(new JLabel(kaanna("hinta"))); panel.add(hintaKentta);
         panel.add(new JLabel("ID:")); panel.add(idKentta);
-        panel.add(new JLabel("Kategoria:")); panel.add(kategoriaKentta);
+        panel.add(new JLabel(kaanna("kategoria"))); panel.add(kategoriaKentta);
         panel.add(new JLabel("Paino:")); panel.add(painoKentta);
         panel.add(new JLabel("Koko:")); panel.add(kokoKentta);
         panel.add(new JLabel("Päiväys:")); panel.add(paivaysKentta);
@@ -414,9 +459,9 @@ public class OstoskoriGUI extends JFrame {
         panel.add(new JLabel("Alkuperämaa:")); panel.add(alkuperamaaKentta);
         panel.add(new JLabel("Valmistusmaa:")); panel.add(valmistusmaaKentta);
         panel.add(new JLabel("EAN:")); panel.add(eanKentta);
-        panel.add(new JLabel("Saldo:")); panel.add(saldoKentta);
+        panel.add(new JLabel(kaanna("saldo"))); panel.add(saldoKentta);
 
-        int tulos = JOptionPane.showConfirmDialog(this, panel, "Muokkaa tuotetta", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int tulos = JOptionPane.showConfirmDialog(this, panel, kaanna("muokkaa_otsikko"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (tulos == JOptionPane.OK_OPTION) {
             tuote.setNimi(nimiKentta.getText());
             try { tuote.setHinta(Double.parseDouble(hintaKentta.getText().replace(",", "."))); } catch (Exception e) { System.err.println("Virheellinen hinta muokkauksessa: " + hintaKentta.getText()); e.printStackTrace(); }
@@ -446,7 +491,66 @@ public class OstoskoriGUI extends JFrame {
         }
     }
 
+    // Päivitä kaikki näkyvät tekstit kielen mukaan
+    private void paivitaKaikkiTekstit() {
+        setTitle(kaanna("otsikko"));
+        // Päivitä kokonaishinta oikealla käännöksellä ja oikealla summalla
+        String hintaKey = "kokonaishinta";
+        String hintaPrefix = kaanna(hintaKey);
+        _hintaLabel.setText(hintaPrefix + String.format("%.2f €", _ostoskori.getKokonaishinta()));
+        if (lisaaButton != null) lisaaButton.setText(kaanna("lisaa_koriin"));
+        if (poistaButton != null) poistaButton.setText(kaanna("poista_korista"));
+        if (lisaaValikoimaanButton != null) {
+            lisaaValikoimaanButton.setText(kaanna("lisaa_uusi"));
+            lisaaValikoimaanButton.repaint();
+        }
+        if (hakuButton != null) hakuButton.setText(kaanna("hae"));
+        if (tyhjennaButton != null) tyhjennaButton.setText(kaanna("tyhjenna"));
+        if (hakuLabel != null) hakuLabel.setText(kaanna("haku"));
+        if (kriteeriBox != null) {
+            kriteeriBox.removeAllItems();
+            kriteeriBox.addItem(kaanna("haku_nimi"));
+            kriteeriBox.addItem(kaanna("haku_hinta"));
+            kriteeriBox.addItem(kaanna("haku_kategoria"));
+        }
+        if (lajitteluBox != null) {
+            lajitteluBox.removeAllItems();
+            lajitteluBox.addItem(kaanna("lajittele_nimi"));
+            lajitteluBox.addItem(kaanna("lajittele_hinta"));
+            lajitteluBox.addItem(kaanna("lajittele_kategoria"));
+        }
+        if (alennusBox != null) {
+            Object selected = alennusBox.getSelectedItem();
+            alennusBox.removeAllItems();
+            alennusBox.addItem(kaanna("alennus_ei"));
+            alennusBox.addItem(kaanna("alennus_osta3"));
+            alennusBox.addItem(kaanna("alennus_10"));
+            // Palauta valinta jos mahdollista (vertaa avaimen perusteella, ei tekstillä)
+            if (selected != null) {
+                for (int i = 0; i < alennusBox.getItemCount(); i++) {
+                    if (alennusBox.getItemAt(i).equals(selected) ||
+                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_ei")) && selected.toString().equals(kaanna("alennus_ei")) ||
+                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_osta3")) && selected.toString().equals(kaanna("alennus_osta3")) ||
+                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_10")) && selected.toString().equals(kaanna("alennus_10"))) {
+                        alennusBox.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            } else {
+                alennusBox.setSelectedIndex(0);
+            }
+        }
+        if (alennusLabel != null) alennusLabel.setText(kaanna("alennus"));
+        if (kieliLabel != null) kieliLabel.setText(kaanna("kieli"));
+        if (otsikko != null) otsikko.setText(kaanna("otsikko"));
+        if (ostoskoriOtsikko != null) ostoskoriOtsikko.setText(kaanna("ostoskori"));
+        repaint();
+    }
+
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new OstoskoriGUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            OstoskoriGUI gui = new OstoskoriGUI();
+            gui.setVisible(true);
+        });
     }
 }
