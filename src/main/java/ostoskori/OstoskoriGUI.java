@@ -4,6 +4,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.*;
 import java.io.*;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
 
 public class OstoskoriGUI extends JFrame {
     private Ostoskori _ostoskori = new Ostoskori();
@@ -31,6 +33,13 @@ public class OstoskoriGUI extends JFrame {
     private JLabel alennusLabel;
     private JComboBox<String> kieliBox;
     private JLabel kieliLabel;
+    private JComboBox<String> valuuttaBox;
+    private JLabel valuuttaLabel;
+    private JButton paivitaKurssitButton;
+
+    // Valuutta
+    private Map<String, Double> _valuuttaKurssit = new HashMap<>(); // EUR-pohjaiset kurssit
+    private String _valittuValuutta = "EUR";
 
     public OstoskoriGUI() {
         setTitle("Yhteenveto");
@@ -201,6 +210,32 @@ public class OstoskoriGUI extends JFrame {
         kieliPanel.add(kieliBox);
         add(kieliPanel, gbc);
 
+        // Valuutta-valinta ja kurssien päivitys
+        String[] valuutat = {"EUR", "USD", "SEK"};
+        valuuttaBox = new JComboBox<>(valuutat);
+        valuuttaBox.setSelectedIndex(0);
+        valuuttaLabel = new JLabel(kaanna("valuutta"));
+        paivitaKurssitButton = new JButton(kaanna("paivita_kurssit"));
+        valuuttaBox.addActionListener(e -> {
+            _valittuValuutta = (String) valuuttaBox.getSelectedItem();
+            paivitaHinta();
+            _tuoteLista.repaint();
+            _koriLista.repaint();
+        });
+        paivitaKurssitButton.addActionListener(e -> {
+            haeValuuttakurssit();
+            paivitaHinta();
+            _tuoteLista.repaint();
+            _koriLista.repaint();
+        });
+        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2;
+        JPanel valuuttaPanel = new JPanel();
+        valuuttaPanel.setOpaque(false);
+        valuuttaPanel.add(valuuttaLabel);
+        valuuttaPanel.add(valuuttaBox);
+        valuuttaPanel.add(paivitaKurssitButton);
+        add(valuuttaPanel, gbc);
+
         // Lajitteluvalinta päivittää tuotelistan järjestyksen
         lajitteluBox.addActionListener(e -> {
             java.util.List<Tuote> tuotteet = new java.util.ArrayList<>();
@@ -208,11 +243,11 @@ public class OstoskoriGUI extends JFrame {
                 tuotteet.add(_tuoteListaMalli.get(i));
             }
             String valinta = (String) lajitteluBox.getSelectedItem();
-            if (valinta.equals("Lajittele: Nimi")) {
+            if (valinta.equals(kaanna("lajittele_nimi"))) {
                 tuotteet.sort(java.util.Comparator.comparing(Tuote::getNimi, String.CASE_INSENSITIVE_ORDER));
-            } else if (valinta.equals("Lajittele: Hinta")) {
+            } else if (valinta.equals(kaanna("lajittele_hinta"))) {
                 tuotteet.sort(java.util.Comparator.comparingDouble(Tuote::getHinta));
-            } else if (valinta.equals("Lajittele: Kategoria")) {
+            } else if (valinta.equals(kaanna("lajittele_kategoria"))) {
                 tuotteet.sort(java.util.Comparator.comparing(t -> t.getKategoria() == null ? "" : t.getKategoria(), String.CASE_INSENSITIVE_ORDER));
             }
             _tuoteListaMalli.clear();
@@ -272,7 +307,8 @@ public class OstoskoriGUI extends JFrame {
                 JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof Tuote) {
                     Tuote t = (Tuote) value;
-                    label.setText(t.getNimi() + " (" + t.getHinta() + " €) | Saldo: " + t.getSaldo());
+                    double converted = muunnaHinta(t.getHinta(), _valittuValuutta);
+                    label.setText(t.getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ") | Saldo: " + t.getSaldo());
                     label.setToolTipText("Kategoria: " + t.getKategoria() + ", Saldo: " + t.getSaldo());
                     if (t.getSaldo() == 0) {
                         label.setForeground(Color.GRAY);
@@ -286,7 +322,8 @@ public class OstoskoriGUI extends JFrame {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof Tuote) {
-                    setText(((Tuote) value).getNimi() + " (" + String.format("%.2f", ((Tuote) value).getHinta()) + " €)");
+                    double converted = muunnaHinta(((Tuote) value).getHinta(), _valittuValuutta);
+                    setText(((Tuote) value).getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ")");
                     setToolTipText(((Tuote) value).toString());
                 } else {
                     setToolTipText(null);
@@ -313,6 +350,12 @@ public class OstoskoriGUI extends JFrame {
                 }
             }
         });
+
+        // Alusta oletuskurssit ennen käyttöä
+        alustaOletusKurssit();
+
+        // Hae kurssit käynnistyksessä
+        SwingUtilities.invokeLater(this::haeValuuttakurssit);
     }
 
     // Lisää puuttuva kielibundle-latausmetodi
@@ -379,7 +422,81 @@ public class OstoskoriGUI extends JFrame {
             if (summa > 50) summa = summa * 0.9;
         }
         String hintaPrefix = kaanna("kokonaishinta");
-        _hintaLabel.setText(hintaPrefix + String.format("%.2f €", summa));
+        _hintaLabel.setText(hintaPrefix + formatoiValuutaksi(summa, _valittuValuutta));
+    }
+
+    // Valuuttakurssien haku
+    private void haeValuuttakurssit() {
+        // Yksinkertainen HTTP pyyntö exchangerate.host APIin
+        HttpURLConnection yhteys = null;
+        try {
+            URL url = URI.create("https://api.exchangerate.host/latest?base=EUR&symbols=USD,SEK").toURL();
+            yhteys = (HttpURLConnection) url.openConnection();
+            yhteys.setConnectTimeout(4000);
+            yhteys.setReadTimeout(4000);
+            yhteys.setRequestMethod("GET");
+            int status = yhteys.getResponseCode();
+            if (status == 200) {
+                StringBuilder sb = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(yhteys.getInputStream(), StandardCharsets.UTF_8))) {
+                    String r; while ((r = br.readLine()) != null) sb.append(r);
+                }
+                String json = sb.toString();
+                // Erittäin kevyt "parser" ilman riippuvuuksia
+                Double usd = haeArvo(json, "USD");
+                Double sek = haeArvo(json, "SEK");
+                if (usd != null) _valuuttaKurssit.put("USD", usd);
+                if (sek != null) _valuuttaKurssit.put("SEK", sek);
+                JOptionPane.showMessageDialog(this, kaanna("kurssit_paivitetty"));
+            } else {
+                JOptionPane.showMessageDialog(this, kaanna("kurssit_virhe"));
+            }
+        } catch (Exception ex) {
+            System.err.println("Virhe valuuttakurssien haussa: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, kaanna("kurssit_virhe"));
+        } finally {
+            if (yhteys != null) yhteys.disconnect();
+        }
+        paivitaHinta();
+    }
+
+    private Double haeArvo(String json, String tunnus) {
+        try {
+            int idx = json.indexOf("\"" + tunnus + "\"");
+            if (idx == -1) return null;
+            int kaksoispiste = json.indexOf(':', idx);
+            if (kaksoispiste == -1) return null;
+            int loppu = kaksoispiste + 1;
+            while (loppu < json.length() && (Character.isWhitespace(json.charAt(loppu)) || json.charAt(loppu) == '"')) loppu++;
+            int end = loppu;
+            while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end)=='.')) end++;
+            String numero = json.substring(loppu, end);
+            return Double.parseDouble(numero);
+        } catch (Exception e) { return null; }
+    }
+
+    private void alustaOletusKurssit() {
+        _valuuttaKurssit.put("EUR", 1.0);
+        _valuuttaKurssit.put("USD", 1.08); // fallback-arvot
+        _valuuttaKurssit.put("SEK", 11.5);
+    }
+
+    private double muunnaHinta(double euroMaara, String valuutta) {
+        Double kurssi = _valuuttaKurssit.getOrDefault(valuutta, 1.0);
+        return euroMaara * kurssi;
+    }
+
+    private String getValuuttaSymboli(String valuutta) {
+        switch (valuutta) {
+            case "USD": return "$";
+            case "SEK": return "kr";
+            default: return "€";
+        }
+    }
+
+    private String formatoiValuutaksi(double euroMaara, String valuutta) {
+        double converted = muunnaHinta(euroMaara, valuutta);
+        return String.format(Locale.US, "%.2f %s", converted, getValuuttaSymboli(valuutta));
     }
 
     private void avaaUusiTuoteDialogi() {
@@ -494,10 +611,6 @@ public class OstoskoriGUI extends JFrame {
     // Päivitä kaikki näkyvät tekstit kielen mukaan
     private void paivitaKaikkiTekstit() {
         setTitle(kaanna("otsikko"));
-        // Päivitä kokonaishinta oikealla käännöksellä ja oikealla summalla
-        String hintaKey = "kokonaishinta";
-        String hintaPrefix = kaanna(hintaKey);
-        _hintaLabel.setText(hintaPrefix + String.format("%.2f €", _ostoskori.getKokonaishinta()));
         if (lisaaButton != null) lisaaButton.setText(kaanna("lisaa_koriin"));
         if (poistaButton != null) poistaButton.setText(kaanna("poista_korista"));
         if (lisaaValikoimaanButton != null) {
@@ -544,6 +657,9 @@ public class OstoskoriGUI extends JFrame {
         if (kieliLabel != null) kieliLabel.setText(kaanna("kieli"));
         if (otsikko != null) otsikko.setText(kaanna("otsikko"));
         if (ostoskoriOtsikko != null) ostoskoriOtsikko.setText(kaanna("ostoskori"));
+        if (valuuttaLabel != null) valuuttaLabel.setText(kaanna("valuutta"));
+        if (paivitaKurssitButton != null) paivitaKurssitButton.setText(kaanna("paivita_kurssit"));
+        paivitaHinta();
         repaint();
     }
 
