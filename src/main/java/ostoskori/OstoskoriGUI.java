@@ -516,6 +516,18 @@ public class OstoskoriGUI extends JFrame {
             String hintaStr = hintaKentta.getText().replace(",", ".").trim();
             String kategoria = kategoriaKentta.getText().trim();
             String saldoStr = saldoKentta.getText().trim();
+            // Duplikaattitarkistus: sama nimi (ja kategoria jos annettu)
+            if (!nimi.isEmpty()) {
+                for (int i = 0; i < _tuoteListaMalli.size(); i++) {
+                    Tuote olemassa = _tuoteListaMalli.get(i);
+                    boolean nimiSama = olemassa.getNimi() != null && olemassa.getNimi().equalsIgnoreCase(nimi);
+                    boolean kategoriaSama = (kategoria.isEmpty() || olemassa.getKategoria() == null || olemassa.getKategoria().isEmpty()) ? true : (olemassa.getKategoria().equalsIgnoreCase(kategoria));
+                    if (nimiSama && kategoriaSama) {
+                        JOptionPane.showMessageDialog(this, kaanna("tuote_olemassa"), kaanna("virhe_otsikko"), JOptionPane.ERROR_MESSAGE);
+                        return; // älä lisää duplikaattia
+                    }
+                }
+            }
             if (!nimi.isEmpty() && !hintaStr.isEmpty() && !saldoStr.isEmpty()) {
                 try {
                     double hinta = Double.parseDouble(hintaStr);
