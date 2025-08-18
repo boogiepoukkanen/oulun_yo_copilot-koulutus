@@ -6,6 +6,10 @@ import java.util.*;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 public class OstoskoriGUI extends JFrame {
     private Ostoskori _ostoskori = new Ostoskori();
@@ -31,15 +35,15 @@ public class OstoskoriGUI extends JFrame {
     private JComboBox<String> lajitteluBox;
     private JComboBox<String> alennusBox;
     private JLabel alennusLabel;
-    private JComboBox<String> kieliBox;
-    private JLabel kieliLabel;
-    private JComboBox<String> valuuttaBox;
-    private JLabel valuuttaLabel;
-    private JButton paivitaKurssitButton;
+    private JButton asetuksetButton;
+    private static final String SETTINGS_FILE = System.getProperty("user.home") + File.separator + ".ostoskori.properties";
 
     // Valuutta
     private Map<String, Double> _valuuttaKurssit = new HashMap<>(); // EUR-pohjaiset kurssit
     private String _valittuValuutta = "EUR";
+    private String _oletusLajittelu = "name"; // name | price | category
+    private long _kurssitPaivitettyMillis = 0L;
+    private int _valittuAlennusIndex = 0;
 
     public OstoskoriGUI() {
         setTitle("Yhteenveto");
@@ -66,6 +70,9 @@ public class OstoskoriGUI extends JFrame {
             System.err.println("Virhe ladattaessa tuotteita/ostoskoria tietokannasta: " + e.getMessage());
             e.printStackTrace();
         }
+        // Lataa asetukset (valuutta + oletuslajittelu + kieli + alennus)
+        lataaAsetukset();
+        _kieliBundle = lataaKieliBundle(_valittuKieli);
         paivitaHinta();
 
         otsikko = new JLabel(kaanna("otsikko"));
@@ -184,7 +191,7 @@ public class OstoskoriGUI extends JFrame {
         // Alennusvalinta
         String[] alennusVaihtoehdot = {kaanna("alennus_ei"), kaanna("alennus_osta3"), kaanna("alennus_10")};
         alennusBox = new JComboBox<>(alennusVaihtoehdot);
-        alennusBox.setSelectedIndex(0);
+        alennusBox.setSelectedIndex(_valittuAlennusIndex);
         gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
         JPanel alennusPanel = new JPanel();
         alennusPanel.setOpaque(false);
@@ -193,61 +200,24 @@ public class OstoskoriGUI extends JFrame {
         alennusPanel.add(alennusBox);
         add(alennusPanel, gbc);
 
-        // Kielivalinta
-        String[] kielet = {"suomi", "svenska", "english"};
-        kieliBox = new JComboBox<>(kielet);
-        kieliBox.setSelectedIndex(0);
-        kieliLabel = new JLabel(kaanna("kieli"));
-        kieliBox.addActionListener(e -> {
-            _valittuKieli = (String)kieliBox.getSelectedItem();
-            _kieliBundle = lataaKieliBundle(_valittuKieli);
-            paivitaKaikkiTekstit();
-        });
+        // Lisää Asetukset -nappi (siirretty riville 5)
         gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
-        JPanel kieliPanel = new JPanel();
-        kieliPanel.setOpaque(false);
-        kieliPanel.add(kieliLabel);
-        kieliPanel.add(kieliBox);
-        add(kieliPanel, gbc);
+        asetuksetButton = new JButton(kaanna("asetukset"));
+        asetuksetButton.addActionListener(e -> new AsetuksetDialog());
+        add(asetuksetButton, gbc);
 
-        // Valuutta-valinta ja kurssien päivitys
-        String[] valuutat = {"EUR", "USD", "SEK"};
-        valuuttaBox = new JComboBox<>(valuutat);
-        valuuttaBox.setSelectedIndex(0);
-        valuuttaLabel = new JLabel(kaanna("valuutta"));
-        paivitaKurssitButton = new JButton(kaanna("paivita_kurssit"));
-        valuuttaBox.addActionListener(e -> {
-            _valittuValuutta = (String) valuuttaBox.getSelectedItem();
-            paivitaHinta();
-            _tuoteLista.repaint();
-            _koriLista.repaint();
-        });
-        paivitaKurssitButton.addActionListener(e -> {
-            haeValuuttakurssit();
-            paivitaHinta();
-            _tuoteLista.repaint();
-            _koriLista.repaint();
-        });
-        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2;
-        JPanel valuuttaPanel = new JPanel();
-        valuuttaPanel.setOpaque(false);
-        valuuttaPanel.add(valuuttaLabel);
-        valuuttaPanel.add(valuuttaBox);
-        valuuttaPanel.add(paivitaKurssitButton);
-        add(valuuttaPanel, gbc);
-
-        // Lajitteluvalinta päivittää tuotelistan järjestyksen
+        // Lajitteluvalinta päivittää tuotelistan järjestyksen (käytä indeksikarttaa, ei käännöstekstiä)
         lajitteluBox.addActionListener(e -> {
             java.util.List<Tuote> tuotteet = new java.util.ArrayList<>();
             for (int i = 0; i < _tuoteListaMalli.size(); i++) {
                 tuotteet.add(_tuoteListaMalli.get(i));
             }
-            String valinta = (String) lajitteluBox.getSelectedItem();
-            if (valinta.equals(kaanna("lajittele_nimi"))) {
+            int idx = lajitteluBox.getSelectedIndex();
+            if (idx == 0) {
                 tuotteet.sort(java.util.Comparator.comparing(Tuote::getNimi, String.CASE_INSENSITIVE_ORDER));
-            } else if (valinta.equals(kaanna("lajittele_hinta"))) {
+            } else if (idx == 1) {
                 tuotteet.sort(java.util.Comparator.comparingDouble(Tuote::getHinta));
-            } else if (valinta.equals(kaanna("lajittele_kategoria"))) {
+            } else if (idx == 2) {
                 tuotteet.sort(java.util.Comparator.comparing(t -> t.getKategoria() == null ? "" : t.getKategoria(), String.CASE_INSENSITIVE_ORDER));
             }
             _tuoteListaMalli.clear();
@@ -298,9 +268,13 @@ public class OstoskoriGUI extends JFrame {
             }
         });
 
-        alennusBox.addActionListener(e -> paivitaHinta());
+        alennusBox.addActionListener(e -> {
+            _valittuAlennusIndex = alennusBox.getSelectedIndex();
+            paivitaHinta();
+            tallennaAsetukset();
+        });
 
-        // Tuotelistan renderer, joka näyttää myös saldon
+        // Tuotelistan renderer, joka näyttää myös saldon (lokalisoidut labelit)
         _tuoteLista.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -308,8 +282,8 @@ public class OstoskoriGUI extends JFrame {
                 if (value instanceof Tuote) {
                     Tuote t = (Tuote) value;
                     double converted = muunnaHinta(t.getHinta(), _valittuValuutta);
-                    label.setText(t.getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ") | Saldo: " + t.getSaldo());
-                    label.setToolTipText("Kategoria: " + t.getKategoria() + ", Saldo: " + t.getSaldo());
+                    label.setText(t.getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ") | " + kaanna("saldo") + " " + t.getSaldo());
+                    label.setToolTipText(kaanna("kategoria") + " " + (t.getKategoria() == null ? "" : t.getKategoria()) + ", " + kaanna("saldo") + " " + t.getSaldo());
                     if (t.getSaldo() == 0) {
                         label.setForeground(Color.GRAY);
                     }
@@ -353,9 +327,11 @@ public class OstoskoriGUI extends JFrame {
 
         // Alusta oletuskurssit ennen käyttöä
         alustaOletusKurssit();
-
-        // Hae kurssit käynnistyksessä
-        SwingUtilities.invokeLater(this::haeValuuttakurssit);
+        // Hae kurssit taustalla (ei blokata EDT:tä)
+        SwingUtilities.invokeLater(() -> haeValuuttakurssitTaustalla(null, null, false));
+        // Sovella oletuslajittelu asetuksista
+        applyOletusLajittelu(_oletusLajittelu);
+        paivitaHinta();
     }
 
     // Lisää puuttuva kielibundle-latausmetodi
@@ -425,9 +401,8 @@ public class OstoskoriGUI extends JFrame {
         _hintaLabel.setText(hintaPrefix + formatoiValuutaksi(summa, _valittuValuutta));
     }
 
-    // Valuuttakurssien haku
-    private void haeValuuttakurssit() {
-        // Yksinkertainen HTTP pyyntö exchangerate.host APIin
+    // Valuuttakurssien haku synkronisesti, palauttaa onnistuiko
+    private boolean haeValuuttakurssitSync() {
         HttpURLConnection yhteys = null;
         try {
             URL url = URI.create("https://api.exchangerate.host/latest?base=EUR&symbols=USD,SEK").toURL();
@@ -442,22 +417,54 @@ public class OstoskoriGUI extends JFrame {
                     String r; while ((r = br.readLine()) != null) sb.append(r);
                 }
                 String json = sb.toString();
-                // Erittäin kevyt "parser" ilman riippuvuuksia
                 Double usd = haeArvo(json, "USD");
                 Double sek = haeArvo(json, "SEK");
                 if (usd != null) _valuuttaKurssit.put("USD", usd);
                 if (sek != null) _valuuttaKurssit.put("SEK", sek);
-                JOptionPane.showMessageDialog(this, kaanna("kurssit_paivitetty"));
+                _kurssitPaivitettyMillis = System.currentTimeMillis();
+                return true;
             } else {
-                JOptionPane.showMessageDialog(this, kaanna("kurssit_virhe"));
+                return false;
             }
         } catch (Exception ex) {
             System.err.println("Virhe valuuttakurssien haussa: " + ex.getMessage());
-            JOptionPane.showMessageDialog(this, kaanna("kurssit_virhe"));
+            return false;
         } finally {
             if (yhteys != null) yhteys.disconnect();
+            paivitaHinta();
         }
-        paivitaHinta();
+    }
+
+    // Taustahaku SwingWorkerilla; jos manual=true, näytetään dialogi
+    private void haeValuuttakurssitTaustalla(JButton refreshBtn, JLabel statusLbl, boolean manual) {
+        if (refreshBtn != null) refreshBtn.setEnabled(false);
+        SwingWorker<Boolean, Void> worker = new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                return haeValuuttakurssitSync();
+            }
+            @Override
+            protected void done() {
+                boolean ok = false;
+                try { ok = get(); } catch (Exception ignored) {}
+                if (manual) {
+                    JOptionPane.showMessageDialog(OstoskoriGUI.this, ok ? kaanna("kurssit_paivitetty") : kaanna("kurssit_virhe"));
+                }
+                if (statusLbl != null) statusLbl.setText(muodostaKurssiStatusTeksti());
+                if (refreshBtn != null) refreshBtn.setEnabled(true);
+                paivitaHinta();
+            }
+        };
+        worker.execute();
+    }
+
+    private String muodostaKurssiStatusTeksti() {
+        String usd = String.format(Locale.US, "USD: %.4f", _valuuttaKurssit.getOrDefault("USD", 1.0));
+        String sek = String.format(Locale.US, "SEK: %.4f", _valuuttaKurssit.getOrDefault("SEK", 1.0));
+        String aika = _kurssitPaivitettyMillis > 0 ?
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withLocale(Locale.getDefault()).format(Instant.ofEpochMilli(_kurssitPaivitettyMillis).atZone(ZoneId.systemDefault())) :
+            "-";
+        return usd + ", " + sek + " | " + kaanna("kurssit_viimeksi") + " " + aika;
     }
 
     private Double haeArvo(String json, String tunnus) {
@@ -516,12 +523,16 @@ public class OstoskoriGUI extends JFrame {
             String hintaStr = hintaKentta.getText().replace(",", ".").trim();
             String kategoria = kategoriaKentta.getText().trim();
             String saldoStr = saldoKentta.getText().trim();
-            // Duplikaattitarkistus: sama nimi (ja kategoria jos annettu)
+            // Duplikaattitarkistus: sama nimi (ja kategoria jos annettu) normalisoituna
             if (!nimi.isEmpty()) {
+                String nNorm = normalisoi(nimi);
+                String kNorm = normalisoi(kategoria);
                 for (int i = 0; i < _tuoteListaMalli.size(); i++) {
                     Tuote olemassa = _tuoteListaMalli.get(i);
-                    boolean nimiSama = olemassa.getNimi() != null && olemassa.getNimi().equalsIgnoreCase(nimi);
-                    boolean kategoriaSama = (kategoria.isEmpty() || olemassa.getKategoria() == null || olemassa.getKategoria().isEmpty()) ? true : (olemassa.getKategoria().equalsIgnoreCase(kategoria));
+                    String onNimi = normalisoi(olemassa.getNimi() == null ? "" : olemassa.getNimi());
+                    String onKat = normalisoi(olemassa.getKategoria() == null ? "" : olemassa.getKategoria());
+                    boolean nimiSama = onNimi.equals(nNorm);
+                    boolean kategoriaSama = kategoria.isEmpty() || onKat.equals(kNorm) || onKat.isEmpty();
                     if (nimiSama && kategoriaSama) {
                         JOptionPane.showMessageDialog(this, kaanna("tuote_olemassa"), kaanna("virhe_otsikko"), JOptionPane.ERROR_MESSAGE);
                         return; // älä lisää duplikaattia
@@ -546,6 +557,16 @@ public class OstoskoriGUI extends JFrame {
                 }
             }
         }
+    }
+
+    private String normalisoi(String s) {
+        if (s == null) return "";
+        String t = Normalizer.normalize(s, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).trim();
+        // Poista diakriitit
+        t = Normalizer.normalize(t, Normalizer.Form.NFD).replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        // Tiivistä whitespace
+        t = t.replaceAll("\\s+", " ");
+        return t;
     }
 
     private void avaaTuotteenMuokkausDialogi(Tuote tuote) {
@@ -633,46 +654,170 @@ public class OstoskoriGUI extends JFrame {
         if (tyhjennaButton != null) tyhjennaButton.setText(kaanna("tyhjenna"));
         if (hakuLabel != null) hakuLabel.setText(kaanna("haku"));
         if (kriteeriBox != null) {
+            int sel = kriteeriBox.getSelectedIndex();
             kriteeriBox.removeAllItems();
             kriteeriBox.addItem(kaanna("haku_nimi"));
             kriteeriBox.addItem(kaanna("haku_hinta"));
             kriteeriBox.addItem(kaanna("haku_kategoria"));
+            if (sel >= 0 && sel < kriteeriBox.getItemCount()) kriteeriBox.setSelectedIndex(sel);
         }
         if (lajitteluBox != null) {
+            int sel = lajitteluBox.getSelectedIndex();
             lajitteluBox.removeAllItems();
             lajitteluBox.addItem(kaanna("lajittele_nimi"));
             lajitteluBox.addItem(kaanna("lajittele_hinta"));
             lajitteluBox.addItem(kaanna("lajittele_kategoria"));
+            if (sel >= 0 && sel < lajitteluBox.getItemCount()) lajitteluBox.setSelectedIndex(sel);
         }
         if (alennusBox != null) {
-            Object selected = alennusBox.getSelectedItem();
+            int sel = alennusBox.getSelectedIndex();
             alennusBox.removeAllItems();
             alennusBox.addItem(kaanna("alennus_ei"));
             alennusBox.addItem(kaanna("alennus_osta3"));
             alennusBox.addItem(kaanna("alennus_10"));
-            // Palauta valinta jos mahdollista (vertaa avaimen perusteella, ei tekstillä)
-            if (selected != null) {
-                for (int i = 0; i < alennusBox.getItemCount(); i++) {
-                    if (alennusBox.getItemAt(i).equals(selected) ||
-                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_ei")) && selected.toString().equals(kaanna("alennus_ei")) ||
-                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_osta3")) && selected.toString().equals(kaanna("alennus_osta3")) ||
-                        alennusBox.getItemAt(i).toString().equals(kaanna("alennus_10")) && selected.toString().equals(kaanna("alennus_10"))) {
-                        alennusBox.setSelectedIndex(i);
-                        break;
-                    }
-                }
-            } else {
-                alennusBox.setSelectedIndex(0);
-            }
+            if (sel >= 0 && sel < alennusBox.getItemCount()) alennusBox.setSelectedIndex(sel);
+            else alennusBox.setSelectedIndex(_valittuAlennusIndex);
         }
         if (alennusLabel != null) alennusLabel.setText(kaanna("alennus"));
-        if (kieliLabel != null) kieliLabel.setText(kaanna("kieli"));
         if (otsikko != null) otsikko.setText(kaanna("otsikko"));
         if (ostoskoriOtsikko != null) ostoskoriOtsikko.setText(kaanna("ostoskori"));
-        if (valuuttaLabel != null) valuuttaLabel.setText(kaanna("valuutta"));
-        if (paivitaKurssitButton != null) paivitaKurssitButton.setText(kaanna("paivita_kurssit"));
+        if (asetuksetButton != null) asetuksetButton.setText(kaanna("asetukset"));
         paivitaHinta();
+        // Päivitä mahdollisesti avoinna oleva asetuksetdialogi
+        for (Window w : getOwnedWindows()) {
+            if (w instanceof AsetuksetDialog) {
+                ((AsetuksetDialog) w).paivitaTekstit();
+            }
+        }
         repaint();
+    }
+
+    private void applyOletusLajittelu(String code) {
+        java.util.List<Tuote> tuotteet = new ArrayList<>();
+        for (int i = 0; i < _tuoteListaMalli.size(); i++) tuotteet.add(_tuoteListaMalli.get(i));
+        switch (code) {
+            case "price": tuotteet.sort(Comparator.comparingDouble(Tuote::getHinta)); break;
+            case "category": tuotteet.sort(Comparator.comparing(t -> t.getKategoria() == null ? "" : t.getKategoria(), String.CASE_INSENSITIVE_ORDER)); break;
+            default: tuotteet.sort(Comparator.comparing(Tuote::getNimi, String.CASE_INSENSITIVE_ORDER)); break;
+        }
+        _tuoteListaMalli.clear();
+        for (Tuote t : tuotteet) _tuoteListaMalli.addElement(t);
+    }
+
+    private void lataaAsetukset() {
+        Properties p = new Properties();
+        File f = new File(SETTINGS_FILE);
+        if (f.exists()) {
+            try (FileInputStream fis = new FileInputStream(f)) { p.load(fis); } catch (Exception e) { System.err.println("Asetusten luku epäonnistui: " + e.getMessage()); }
+        }
+        _valittuValuutta = p.getProperty("currency", _valittuValuutta);
+        _oletusLajittelu = p.getProperty("defaultSort", _oletusLajittelu);
+        _valittuKieli = p.getProperty("language", _valittuKieli);
+        try { _valittuAlennusIndex = Integer.parseInt(p.getProperty("discountIndex", "0")); } catch (Exception ignore) { _valittuAlennusIndex = 0; }
+    }
+
+    private void tallennaAsetukset() {
+        Properties p = new Properties();
+        p.setProperty("currency", _valittuValuutta);
+        p.setProperty("defaultSort", _oletusLajittelu);
+        p.setProperty("language", _valittuKieli);
+        p.setProperty("discountIndex", String.valueOf(_valittuAlennusIndex));
+        try (FileOutputStream fos = new FileOutputStream(SETTINGS_FILE)) { p.store(fos, "Ostoskori asetukset"); } catch (Exception e) { System.err.println("Asetusten tallennus epäonnistui: " + e.getMessage()); }
+    }
+
+    // Asetukset dialogi
+    private class AsetuksetDialog extends JDialog {
+        private JComboBox<String> currencyCombo;
+        private JComboBox<String> sortCombo;
+        private JComboBox<String> languageCombo;
+        private JLabel valuuttaLbl;
+        private JLabel oletusLajitteluLbl;
+        private JLabel kieliLbl;
+        private JButton saveBtn;
+        private JButton closeBtn;
+        private JButton refreshKurssitBtn;
+        private JLabel kurssiStatusLbl;
+        private final String[] sortCodes = {"name","price","category"};
+        private final String[] languageCodes = {"suomi","svenska","english"};
+        AsetuksetDialog() {
+            super(OstoskoriGUI.this, kaanna("asetukset_otsikko"), true);
+            rakenna();
+            setLocationRelativeTo(OstoskoriGUI.this);
+            setVisible(true);
+        }
+        private void rakenna() {
+            getContentPane().removeAll();
+            setLayout(new GridBagLayout());
+            GridBagConstraints g = new GridBagConstraints();
+            g.insets = new Insets(8,8,8,8);
+            g.anchor = GridBagConstraints.WEST;
+            g.fill = GridBagConstraints.HORIZONTAL;
+            int row = 0;
+            // Kieli
+            g.gridx = 0; g.gridy = row; kieliLbl = new JLabel(kaanna("kieli")); add(kieliLbl, g);
+            languageCombo = new JComboBox<>(languageCodes);
+            languageCombo.setSelectedItem(_valittuKieli);
+            g.gridx = 1; add(languageCombo, g); row++;
+            // Valuutta
+            g.gridx = 0; g.gridy = row; valuuttaLbl = new JLabel(kaanna("valuutta")); add(valuuttaLbl, g);
+            currencyCombo = new JComboBox<>(new String[]{"EUR","USD","SEK"});
+            currencyCombo.setSelectedItem(_valittuValuutta);
+            g.gridx = 1; add(currencyCombo, g); row++;
+            // Kurssien päivitys ja status
+            g.gridx = 0; g.gridy = row; refreshKurssitBtn = new JButton(kaanna("paivita_kurssit")); add(refreshKurssitBtn, g);
+            g.gridx = 1; kurssiStatusLbl = new JLabel(muodostaKurssiStatusTeksti()); add(kurssiStatusLbl, g); row++;
+            // Oletus lajittelu
+            g.gridx = 0; g.gridy = row; oletusLajitteluLbl = new JLabel(kaanna("oletus_lajittelu")); add(oletusLajitteluLbl, g);
+            String[] sortDisplay = {kaanna("lajittele_nimi"), kaanna("lajittele_hinta"), kaanna("lajittele_kategoria")};
+            sortCombo = new JComboBox<>(sortDisplay);
+            int idx = 0; if (_oletusLajittelu.equals("price")) idx = 1; else if (_oletusLajittelu.equals("category")) idx = 2; sortCombo.setSelectedIndex(idx);
+            g.gridx = 1; add(sortCombo, g); row++;
+            // Buttons
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            saveBtn = new JButton(kaanna("tallenna"));
+            closeBtn = new JButton(kaanna("sulje"));
+            btnPanel.add(saveBtn); btnPanel.add(closeBtn);
+            g.gridx = 0; g.gridy = row; g.gridwidth = 2; add(btnPanel, g);
+            refreshKurssitBtn.addActionListener(e -> {
+                haeValuuttakurssitTaustalla(refreshKurssitBtn, kurssiStatusLbl, true);
+            });
+            saveBtn.addActionListener(e -> {
+                _valittuValuutta = (String) currencyCombo.getSelectedItem();
+                _oletusLajittelu = sortCodes[sortCombo.getSelectedIndex()];
+                _valittuKieli = (String) languageCombo.getSelectedItem();
+                _kieliBundle = lataaKieliBundle(_valittuKieli);
+                tallennaAsetukset();
+                applyOletusLajittelu(_oletusLajittelu);
+                paivitaKaikkiTekstit();
+                paivitaHinta();
+                _tuoteLista.repaint();
+                _koriLista.repaint();
+                dispose();
+            });
+            closeBtn.addActionListener(e -> dispose());
+            getRootPane().setDefaultButton(saveBtn);
+            pack();
+        }
+        private void paivitaTekstit() {
+            setTitle(kaanna("asetukset_otsikko"));
+            if (kieliLbl != null) kieliLbl.setText(kaanna("kieli"));
+            if (valuuttaLbl != null) valuuttaLbl.setText(kaanna("valuutta"));
+            if (oletusLajitteluLbl != null) oletusLajitteluLbl.setText(kaanna("oletus_lajittelu"));
+            if (saveBtn != null) saveBtn.setText(kaanna("tallenna"));
+            if (closeBtn != null) closeBtn.setText(kaanna("sulje"));
+            if (refreshKurssitBtn != null) refreshKurssitBtn.setText(kaanna("paivita_kurssit"));
+            if (kurssiStatusLbl != null) kurssiStatusLbl.setText(muodostaKurssiStatusTeksti());
+            if (sortCombo != null) {
+                int sel = sortCombo.getSelectedIndex();
+                sortCombo.removeAllItems();
+                sortCombo.addItem(kaanna("lajittele_nimi"));
+                sortCombo.addItem(kaanna("lajittele_hinta"));
+                sortCombo.addItem(kaanna("lajittele_kategoria"));
+                if (sel >= 0 && sel < sortCombo.getItemCount()) sortCombo.setSelectedIndex(sel);
+            }
+            revalidate();
+            repaint();
+        }
     }
 
     public static void main(String[] args) {
