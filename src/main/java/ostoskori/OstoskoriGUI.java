@@ -104,6 +104,16 @@ public class OstoskoriGUI extends JFrame {
         koriScroll.setMinimumSize(listaKoko);
         tuoteScroll.setBorder(BorderFactory.createTitledBorder(kaanna("valikoima")));
         koriScroll.setBorder(BorderFactory.createTitledBorder(kaanna("ostoskori")));
+        // Make the product list background white (and ensure viewport matches)
+        _tuoteLista.setBackground(Color.WHITE);
+        _tuoteLista.setForeground(Color.BLACK);
+        tuoteScroll.getViewport().setBackground(Color.WHITE);
+        // Make the cart list match the product list visually: white background and opaque viewport
+        _koriLista.setBackground(Color.WHITE);
+        _koriLista.setForeground(Color.BLACK);
+        _koriLista.setOpaque(true);
+        koriScroll.getViewport().setBackground(Color.WHITE);
+        koriScroll.getViewport().setOpaque(true);
         ostoskoriSisalto.add(tuoteScroll);
         ostoskoriSisalto.add(koriScroll);
         ostoskoriKortti.add(ostoskoriSisalto, BorderLayout.CENTER);
@@ -307,31 +317,71 @@ public class OstoskoriGUI extends JFrame {
                     double converted = muunnaHinta(t.getHinta(), _valittuValuutta);
                     label.setText(t.getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ") | " + kaanna("saldo") + " " + t.getSaldo());
                     label.setToolTipText(kaanna("kategoria") + " " + (t.getKategoria() == null ? "" : t.getKategoria()) + ", " + kaanna("saldo") + " " + t.getSaldo());
-                    if (t.getSaldo() == 0) {
-                        label.setForeground(Color.GRAY);
+                    // Make list item background white when not selected and text readable
+                    if (isSelected) {
+                        // keep selection colors provided by LAF
+                        label.setBackground(list.getSelectionBackground());
+                        label.setForeground(list.getSelectionForeground());
+                    } else {
+                        label.setBackground(Color.WHITE);
+                        label.setForeground(t.getSaldo() == 0 ? Color.GRAY : Color.BLACK);
                     }
+                    label.setOpaque(true);
                 }
                 return label;
             }
         });
+        // Make cart list renderer behave like product list renderer so backgrounds show correctly
         _koriLista.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof Tuote) {
-                    double converted = muunnaHinta(((Tuote) value).getHinta(), _valittuValuutta);
-                    setText(((Tuote) value).getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ")");
-                    setToolTipText(((Tuote) value).toString());
-                } else {
-                    setToolTipText(null);
+                    Tuote t = (Tuote) value;
+                    double converted = muunnaHinta(t.getHinta(), _valittuValuutta);
+                    label.setText(t.getNimi() + " (" + String.format(Locale.US, "%.2f", converted) + " " + getValuuttaSymboli(_valittuValuutta) + ")");
+                    label.setToolTipText(t.toString());
+                    if (isSelected) {
+                        label.setBackground(list.getSelectionBackground());
+                        label.setForeground(list.getSelectionForeground());
+                    } else {
+                        label.setBackground(Color.WHITE);
+                        label.setForeground(Color.BLACK);
+                    }
+                    label.setOpaque(true);
                 }
-                setBackground(new Color(40, 40, 40));
-                setForeground(Color.WHITE);
-                return c;
+                return label;
             }
         });
+        // Ensure both lists render immediately
+        _tuoteLista.revalidate(); _tuoteLista.repaint();
+        _koriLista.revalidate(); _koriLista.repaint();
         _tuoteLista.setSelectionBackground(new Color(60, 60, 60));
         _koriLista.setSelectionBackground(new Color(60, 60, 60));
+
+        // Key bindings: 'a' = add selected product to cart, 'r' = remove selected product from cart
+        InputMap inputMap = getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = getRootPane().getActionMap();
+
+        inputMap.put(KeyStroke.getKeyStroke('a'), "addToCart");
+        actionMap.put("addToCart", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (lisaaButton != null && lisaaButton.isEnabled()) {
+                    lisaaButton.doClick();
+                }
+            }
+        });
+
+        inputMap.put(KeyStroke.getKeyStroke('r'), "removeFromCart");
+        actionMap.put("removeFromCart", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (poistaButton != null && poistaButton.isEnabled()) {
+                    poistaButton.doClick();
+                }
+            }
+        });
 
         // Tuplaklikkaus avaa muokkausdialogin
         _tuoteLista.addMouseListener(new java.awt.event.MouseAdapter() {
