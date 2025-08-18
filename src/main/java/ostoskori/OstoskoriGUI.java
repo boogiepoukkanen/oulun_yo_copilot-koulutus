@@ -22,6 +22,10 @@ public class OstoskoriGUI extends JFrame {
     private ResourceBundle _kieliBundle = lataaKieliBundle("suomi");
     private String _valittuKieli = "suomi";
 
+    // Roolit
+    private enum Role { ADMIN, USER }
+    private Role _rooli = Role.USER; // oletus
+
     // UI components that need translation
     private JLabel otsikko;
     private JLabel ostoskoriOtsikko;
@@ -70,7 +74,7 @@ public class OstoskoriGUI extends JFrame {
             System.err.println("Virhe ladattaessa tuotteita/ostoskoria tietokannasta: " + e.getMessage());
             e.printStackTrace();
         }
-        // Lataa asetukset (valuutta + oletuslajittelu + kieli + alennus)
+        // Lataa asetukset (valuutta + oletuslajittelu + kieli + alennus + rooli)
         lataaAsetukset();
         _kieliBundle = lataaKieliBundle(_valittuKieli);
         paivitaHinta();
@@ -118,7 +122,17 @@ public class OstoskoriGUI extends JFrame {
         lisaaButton = new JButton(kaanna("lisaa_koriin"));
         poistaButton = new JButton(kaanna("poista_korista"));
         lisaaValikoimaanButton = new JButton(kaanna("lisaa_uusi"));
+        // Tooltipit kertomaan roolarajoituksista
+        lisaaButton.setToolTipText(kaanna("vinkki_lisaa_koriin_rooli"));
+        poistaButton.setToolTipText(kaanna("vinkki_poista_korista_rooli"));
+        lisaaValikoimaanButton.setToolTipText(kaanna("vinkki_lisaa_valikoimaan_rooli"));
+
         lisaaButton.addActionListener(e -> {
+            // Roolitarkistus: vain käyttäjä (USER) saa lisätä tuotteita ostoskoriin
+            if (_rooli != Role.USER) {
+                JOptionPane.showMessageDialog(this, kaanna("toiminto_ei_sallittu_rooli"), kaanna("virhe_otsikko"), JOptionPane.WARNING_MESSAGE);
+                return;
+            }
             Tuote valittu = _tuoteLista.getSelectedValue();
             if (valittu != null) {
                 if (valittu.getSaldo() <= 0) {
@@ -140,6 +154,11 @@ public class OstoskoriGUI extends JFrame {
             }
         });
         poistaButton.addActionListener(e -> {
+            // Roolitarkistus: vain käyttäjä (USER) saa poistaa ostoskorista
+            if (_rooli != Role.USER) {
+                JOptionPane.showMessageDialog(this, kaanna("toiminto_ei_sallittu_rooli"), kaanna("virhe_otsikko"), JOptionPane.WARNING_MESSAGE);
+                return;
+            }
             Tuote valittu = _koriLista.getSelectedValue();
             if (valittu != null) {
                 _ostoskori.poistaTuote(valittu);
@@ -174,7 +193,11 @@ public class OstoskoriGUI extends JFrame {
         hakuLabel = new JLabel(kaanna("haku"));
         String[] kriteerit = {kaanna("haku_nimi"), kaanna("haku_hinta"), kaanna("haku_kategoria")};
         kriteeriBox = new JComboBox<>(kriteerit);
-        JTextField hakuKentta = new JTextField(16);
+        // Increased columns and explicit preferred/minimum size so field stays long even when empty
+        JTextField hakuKentta = new JTextField(24);
+        Dimension hakuSize = new Dimension(340, hakuKentta.getPreferredSize().height);
+        hakuKentta.setPreferredSize(hakuSize);
+        hakuKentta.setMinimumSize(new Dimension(200, hakuKentta.getPreferredSize().height));
         hakuButton = new JButton(kaanna("hae"));
         tyhjennaButton = new JButton(kaanna("tyhjenna"));
         String[] lajitteluKriteerit = {kaanna("lajittele_nimi"), kaanna("lajittele_hinta"), kaanna("lajittele_kategoria")};
@@ -317,9 +340,14 @@ public class OstoskoriGUI extends JFrame {
                 if (evt.getClickCount() == 2) {
                     Tuote valittu = _tuoteLista.getSelectedValue();
                     if (valittu != null) {
-                        avaaTuotteenMuokkausDialogi(valittu);
-                        _tuoteLista.repaint();
-                        _koriLista.repaint();
+                        // Roolitarkistus: vain ADMIN voi muokata tuotteita
+                        if (_rooli != Role.ADMIN) {
+                            JOptionPane.showMessageDialog(OstoskoriGUI.this, kaanna("toiminto_ei_sallittu_rooli"), kaanna("virhe_otsikko"), JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            avaaTuotteenMuokkausDialogi(valittu);
+                            _tuoteLista.repaint();
+                            _koriLista.repaint();
+                        }
                     }
                 }
             }
@@ -332,6 +360,28 @@ public class OstoskoriGUI extends JFrame {
         // Sovella oletuslajittelu asetuksista
         applyOletusLajittelu(_oletusLajittelu);
         paivitaHinta();
+
+        // Sovella rooliin liittyvät UI-muutokset (napit enable/disable ym.)
+        applyRoleToUI();
+    }
+
+    // Lisää puuttuva oletuslajittelu-metodi
+    private void applyOletusLajittelu(String lajittelu) {
+        java.util.List<Tuote> tuotteet = new java.util.ArrayList<>();
+        for (int i = 0; i < _tuoteListaMalli.size(); i++) {
+            tuotteet.add(_tuoteListaMalli.get(i));
+        }
+        if ("name".equals(lajittelu)) {
+            tuotteet.sort(java.util.Comparator.comparing(Tuote::getNimi, String.CASE_INSENSITIVE_ORDER));
+        } else if ("price".equals(lajittelu)) {
+            tuotteet.sort(java.util.Comparator.comparingDouble(Tuote::getHinta));
+        } else if ("category".equals(lajittelu)) {
+            tuotteet.sort(java.util.Comparator.comparing(t -> t.getKategoria() == null ? "" : t.getKategoria(), String.CASE_INSENSITIVE_ORDER));
+        }
+        _tuoteListaMalli.clear();
+        for (Tuote t : tuotteet) {
+            _tuoteListaMalli.addElement(t);
+        }
     }
 
     // Lisää puuttuva kielibundle-latausmetodi
@@ -399,6 +449,17 @@ public class OstoskoriGUI extends JFrame {
         }
         String hintaPrefix = kaanna("kokonaishinta");
         _hintaLabel.setText(hintaPrefix + formatoiValuutaksi(summa, _valittuValuutta));
+    }
+
+    // Soveltaa rooliin liittyvät UI-tilat (napit, tooltipit)
+    private void applyRoleToUI() {
+        if (lisaaButton != null) lisaaButton.setEnabled(_rooli == Role.USER);
+        if (poistaButton != null) poistaButton.setEnabled(_rooli == Role.USER);
+        if (lisaaValikoimaanButton != null) lisaaValikoimaanButton.setEnabled(_rooli == Role.ADMIN);
+        // Tooltipit (lokalisoitu avain on valinnainen)
+        if (lisaaButton != null) lisaaButton.setToolTipText(_rooli == Role.USER ? null : kaanna("vain_kayttaja_voima"));
+        if (poistaButton != null) poistaButton.setToolTipText(_rooli == Role.USER ? null : kaanna("vain_kayttaja_voima"));
+        if (lisaaValikoimaanButton != null) lisaaValikoimaanButton.setToolTipText(_rooli == Role.ADMIN ? null : kaanna("vain_admin_voima"));
     }
 
     // Valuuttakurssien haku synkronisesti, palauttaa onnistuiko
@@ -507,6 +568,11 @@ public class OstoskoriGUI extends JFrame {
     }
 
     private void avaaUusiTuoteDialogi() {
+        // Roolitarkistus: vain ADMIN saa lisätä tuotteita valikoimaan
+        if (_rooli != Role.ADMIN) {
+            JOptionPane.showMessageDialog(this, kaanna("toiminto_ei_sallittu_rooli"), kaanna("virhe_otsikko"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         JTextField nimiKentta = new JTextField();
         JTextField hintaKentta = new JTextField();
         JTextField kategoriaKentta = new JTextField();
@@ -570,6 +636,11 @@ public class OstoskoriGUI extends JFrame {
     }
 
     private void avaaTuotteenMuokkausDialogi(Tuote tuote) {
+        // Roolitarkistus: vain ADMIN saa muokata tuotteita
+        if (_rooli != Role.ADMIN) {
+            JOptionPane.showMessageDialog(this, kaanna("toiminto_ei_sallittu_rooli"), kaanna("virhe_otsikko"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         JTextField nimiKentta = new JTextField(tuote.getNimi());
         JTextField hintaKentta = new JTextField(String.valueOf(tuote.getHinta()));
         JTextField idKentta = new JTextField(String.valueOf(tuote.getId()));
@@ -641,69 +712,6 @@ public class OstoskoriGUI extends JFrame {
         }
     }
 
-    // Päivitä kaikki näkyvät tekstit kielen mukaan
-    private void paivitaKaikkiTekstit() {
-        setTitle(kaanna("otsikko"));
-        if (lisaaButton != null) lisaaButton.setText(kaanna("lisaa_koriin"));
-        if (poistaButton != null) poistaButton.setText(kaanna("poista_korista"));
-        if (lisaaValikoimaanButton != null) {
-            lisaaValikoimaanButton.setText(kaanna("lisaa_uusi"));
-            lisaaValikoimaanButton.repaint();
-        }
-        if (hakuButton != null) hakuButton.setText(kaanna("hae"));
-        if (tyhjennaButton != null) tyhjennaButton.setText(kaanna("tyhjenna"));
-        if (hakuLabel != null) hakuLabel.setText(kaanna("haku"));
-        if (kriteeriBox != null) {
-            int sel = kriteeriBox.getSelectedIndex();
-            kriteeriBox.removeAllItems();
-            kriteeriBox.addItem(kaanna("haku_nimi"));
-            kriteeriBox.addItem(kaanna("haku_hinta"));
-            kriteeriBox.addItem(kaanna("haku_kategoria"));
-            if (sel >= 0 && sel < kriteeriBox.getItemCount()) kriteeriBox.setSelectedIndex(sel);
-        }
-        if (lajitteluBox != null) {
-            int sel = lajitteluBox.getSelectedIndex();
-            lajitteluBox.removeAllItems();
-            lajitteluBox.addItem(kaanna("lajittele_nimi"));
-            lajitteluBox.addItem(kaanna("lajittele_hinta"));
-            lajitteluBox.addItem(kaanna("lajittele_kategoria"));
-            if (sel >= 0 && sel < lajitteluBox.getItemCount()) lajitteluBox.setSelectedIndex(sel);
-        }
-        if (alennusBox != null) {
-            int sel = alennusBox.getSelectedIndex();
-            alennusBox.removeAllItems();
-            alennusBox.addItem(kaanna("alennus_ei"));
-            alennusBox.addItem(kaanna("alennus_osta3"));
-            alennusBox.addItem(kaanna("alennus_10"));
-            if (sel >= 0 && sel < alennusBox.getItemCount()) alennusBox.setSelectedIndex(sel);
-            else alennusBox.setSelectedIndex(_valittuAlennusIndex);
-        }
-        if (alennusLabel != null) alennusLabel.setText(kaanna("alennus"));
-        if (otsikko != null) otsikko.setText(kaanna("otsikko"));
-        if (ostoskoriOtsikko != null) ostoskoriOtsikko.setText(kaanna("ostoskori"));
-        if (asetuksetButton != null) asetuksetButton.setText(kaanna("asetukset"));
-        paivitaHinta();
-        // Päivitä mahdollisesti avoinna oleva asetuksetdialogi
-        for (Window w : getOwnedWindows()) {
-            if (w instanceof AsetuksetDialog) {
-                ((AsetuksetDialog) w).paivitaTekstit();
-            }
-        }
-        repaint();
-    }
-
-    private void applyOletusLajittelu(String code) {
-        java.util.List<Tuote> tuotteet = new ArrayList<>();
-        for (int i = 0; i < _tuoteListaMalli.size(); i++) tuotteet.add(_tuoteListaMalli.get(i));
-        switch (code) {
-            case "price": tuotteet.sort(Comparator.comparingDouble(Tuote::getHinta)); break;
-            case "category": tuotteet.sort(Comparator.comparing(t -> t.getKategoria() == null ? "" : t.getKategoria(), String.CASE_INSENSITIVE_ORDER)); break;
-            default: tuotteet.sort(Comparator.comparing(Tuote::getNimi, String.CASE_INSENSITIVE_ORDER)); break;
-        }
-        _tuoteListaMalli.clear();
-        for (Tuote t : tuotteet) _tuoteListaMalli.addElement(t);
-    }
-
     private void lataaAsetukset() {
         Properties p = new Properties();
         File f = new File(SETTINGS_FILE);
@@ -714,6 +722,13 @@ public class OstoskoriGUI extends JFrame {
         _oletusLajittelu = p.getProperty("defaultSort", _oletusLajittelu);
         _valittuKieli = p.getProperty("language", _valittuKieli);
         try { _valittuAlennusIndex = Integer.parseInt(p.getProperty("discountIndex", "0")); } catch (Exception ignore) { _valittuAlennusIndex = 0; }
+        // Lataa rooli (DEFAULT: USER)
+        try {
+            String r = p.getProperty("role", _rooli.name());
+            _rooli = Role.valueOf(r);
+        } catch (Exception ex) {
+            _rooli = Role.USER;
+        }
     }
 
     private void tallennaAsetukset() {
@@ -722,6 +737,8 @@ public class OstoskoriGUI extends JFrame {
         p.setProperty("defaultSort", _oletusLajittelu);
         p.setProperty("language", _valittuKieli);
         p.setProperty("discountIndex", String.valueOf(_valittuAlennusIndex));
+        // Tallenna rooli
+        p.setProperty("role", _rooli.name());
         try (FileOutputStream fos = new FileOutputStream(SETTINGS_FILE)) { p.store(fos, "Ostoskori asetukset"); } catch (Exception e) { System.err.println("Asetusten tallennus epäonnistui: " + e.getMessage()); }
     }
 
@@ -730,15 +747,18 @@ public class OstoskoriGUI extends JFrame {
         private JComboBox<String> currencyCombo;
         private JComboBox<String> sortCombo;
         private JComboBox<String> languageCombo;
+        private JComboBox<String> roleCombo;
         private JLabel valuuttaLbl;
         private JLabel oletusLajitteluLbl;
         private JLabel kieliLbl;
+        private JLabel rooliLbl;
         private JButton saveBtn;
         private JButton closeBtn;
         private JButton refreshKurssitBtn;
         private JLabel kurssiStatusLbl;
         private final String[] sortCodes = {"name","price","category"};
         private final String[] languageCodes = {"suomi","svenska","english"};
+        private final String[] roleCodes = {"USER", "ADMIN"};
         AsetuksetDialog() {
             super(OstoskoriGUI.this, kaanna("asetukset_otsikko"), true);
             rakenna();
@@ -772,6 +792,11 @@ public class OstoskoriGUI extends JFrame {
             sortCombo = new JComboBox<>(sortDisplay);
             int idx = 0; if (_oletusLajittelu.equals("price")) idx = 1; else if (_oletusLajittelu.equals("category")) idx = 2; sortCombo.setSelectedIndex(idx);
             g.gridx = 1; add(sortCombo, g); row++;
+            // Rooli-valinta
+            g.gridx = 0; g.gridy = row; rooliLbl = new JLabel(kaanna("rooli")); add(rooliLbl, g);
+            roleCombo = new JComboBox<>(roleCodes);
+            roleCombo.setSelectedItem(_rooli.name());
+            g.gridx = 1; add(roleCombo, g); row++;
             // Buttons
             JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             saveBtn = new JButton(kaanna("tallenna"));
@@ -786,12 +811,17 @@ public class OstoskoriGUI extends JFrame {
                 _oletusLajittelu = sortCodes[sortCombo.getSelectedIndex()];
                 _valittuKieli = (String) languageCombo.getSelectedItem();
                 _kieliBundle = lataaKieliBundle(_valittuKieli);
+                // Tallenna rooli
+                try { _rooli = Role.valueOf((String) roleCombo.getSelectedItem()); } catch (Exception ex) { _rooli = Role.USER; }
                 tallennaAsetukset();
                 applyOletusLajittelu(_oletusLajittelu);
-                paivitaKaikkiTekstit();
+                // Päivitä dialogin tekstit ja pää-UI:n tekstit kielivalinnan jälkeen
+                paivitaTekstit();
+                OstoskoriGUI.this.paivitaKaikkiTekstit();
                 paivitaHinta();
                 _tuoteLista.repaint();
                 _koriLista.repaint();
+                applyRoleToUI();
                 dispose();
             });
             closeBtn.addActionListener(e -> dispose());
@@ -803,6 +833,7 @@ public class OstoskoriGUI extends JFrame {
             if (kieliLbl != null) kieliLbl.setText(kaanna("kieli"));
             if (valuuttaLbl != null) valuuttaLbl.setText(kaanna("valuutta"));
             if (oletusLajitteluLbl != null) oletusLajitteluLbl.setText(kaanna("oletus_lajittelu"));
+            if (rooliLbl != null) rooliLbl.setText(kaanna("rooli"));
             if (saveBtn != null) saveBtn.setText(kaanna("tallenna"));
             if (closeBtn != null) closeBtn.setText(kaanna("sulje"));
             if (refreshKurssitBtn != null) refreshKurssitBtn.setText(kaanna("paivita_kurssit"));
@@ -818,6 +849,57 @@ public class OstoskoriGUI extends JFrame {
             revalidate();
             repaint();
         }
+    }
+
+    // Päivittää kaikki näkyvät tekstit pää-UI:ssa (kieli/tekstit päivittyvät ajonaikaisesti)
+    private void paivitaKaikkiTekstit() {
+        // Päivitä ikkunan otsikko
+        setTitle(kaanna("otsikko"));
+        if (lisaaButton != null) lisaaButton.setText(kaanna("lisaa_koriin"));
+        if (poistaButton != null) poistaButton.setText(kaanna("poista_korista"));
+        if (lisaaValikoimaanButton != null) {
+            lisaaValikoimaanButton.setText(kaanna("lisaa_uusi"));
+            lisaaValikoimaanButton.repaint();
+        }
+        if (hakuButton != null) hakuButton.setText(kaanna("hae"));
+        if (tyhjennaButton != null) tyhjennaButton.setText(kaanna("tyhjenna"));
+        if (hakuLabel != null) hakuLabel.setText(kaanna("haku"));
+        if (kriteeriBox != null) {
+            int sel = kriteeriBox.getSelectedIndex();
+            kriteeriBox.removeAllItems();
+            kriteeriBox.addItem(kaanna("haku_nimi"));
+            kriteeriBox.addItem(kaanna("haku_hinta"));
+            kriteeriBox.addItem(kaanna("haku_kategoria"));
+            if (sel >= 0 && sel < kriteeriBox.getItemCount()) kriteeriBox.setSelectedIndex(sel);
+        }
+        if (lajitteluBox != null) {
+            int sel = lajitteluBox.getSelectedIndex();
+            lajitteluBox.removeAllItems();
+            lajitteluBox.addItem(kaanna("lajittele_nimi"));
+            lajitteluBox.addItem(kaanna("lajittele_hinta"));
+            lajitteluBox.addItem(kaanna("lajittele_kategoria"));
+            if (sel >= 0 && sel < lajitteluBox.getItemCount()) lajitteluBox.setSelectedIndex(sel);
+        }
+        if (alennusBox != null) {
+            int sel = alennusBox.getSelectedIndex();
+            alennusBox.removeAllItems();
+            alennusBox.addItem(kaanna("alennus_ei"));
+            alennusBox.addItem(kaanna("alennus_osta3"));
+            alennusBox.addItem(kaanna("alennus_10"));
+            if (sel >= 0 && sel < alennusBox.getItemCount()) alennusBox.setSelectedIndex(sel); else alennusBox.setSelectedIndex(_valittuAlennusIndex);
+        }
+        if (alennusLabel != null) alennusLabel.setText(kaanna("alennus"));
+        if (otsikko != null) otsikko.setText(kaanna("otsikko"));
+        if (ostoskoriOtsikko != null) ostoskoriOtsikko.setText(kaanna("ostoskori"));
+        if (asetuksetButton != null) asetuksetButton.setText(kaanna("asetukset"));
+        paivitaHinta();
+        // Päivitä mahdollisesti avoinna oleva asetuksetdialogi
+        for (Window w : getOwnedWindows()) {
+            if (w instanceof AsetuksetDialog) {
+                ((AsetuksetDialog) w).paivitaTekstit();
+            }
+        }
+        repaint();
     }
 
     public static void main(String[] args) {
