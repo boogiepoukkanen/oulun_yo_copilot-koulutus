@@ -50,7 +50,7 @@ public class OstoskoriGUI extends JFrame {
     private int _valittuAlennusIndex = 0;
 
     public OstoskoriGUI() {
-        setTitle("Yhteenveto");
+        setTitle("Copilot-harjoitustyö");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setSize(700, 800);
         setLocationRelativeTo(null);
